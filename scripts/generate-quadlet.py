@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Generate Quadlet configuration from repository."""
-import os
 import sys
 from pathlib import Path
 
@@ -9,7 +8,7 @@ repo_root = Path(__file__).parent.parent.resolve()
 
 # Add repo root to path to import config module
 sys.path.insert(0, str(repo_root))
-import config
+import config  # noqa: E402
 
 # User config from config.py (reuses same defaults and .env loading logic)
 source_dir = str(repo_root)

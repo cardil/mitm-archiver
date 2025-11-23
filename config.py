@@ -11,6 +11,7 @@ from pathlib import Path
 # Load .env if present (optional)
 try:
     from dotenv import load_dotenv
+
     env_file = os.getenv("ENV_FILE", ".env")
     if Path(env_file).exists():
         load_dotenv(env_file)

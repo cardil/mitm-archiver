@@ -7,7 +7,7 @@ from pathlib import Path
 # Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import LISTEN_PORT, PROXY_AUTH, CERTS_DIR
+from config import CERTS_DIR, LISTEN_PORT, PROXY_AUTH
 
 # Build mitmdump command with hardcoded best-practice settings
 # archiver.py is in repo root (parent.parent of bin/mitm-archiver)

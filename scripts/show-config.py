@@ -8,7 +8,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import json
-from config import CACHE_DIR, LISTEN_PORT, CERTS_DIR, PROXY_AUTH
+
+from config import CACHE_DIR, CERTS_DIR, LISTEN_PORT, PROXY_AUTH
 
 config = {
     'cache_dir': str(CACHE_DIR),

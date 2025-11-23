@@ -54,29 +54,9 @@ run: .env.local ## Run mitm-archiver in development mode
 	@printf "\n"
 	@ENV_FILE=$(ENV_FILE) $(VENV_BIN)/python bin/mitm-archiver
 
-test: ## Test the proxy with sample requests
-	@printf "$(YELLOW)🧪 Testing mitm-archiver...$(RESET)\n"
-	@printf "\n"
-	@bash -c '\
-		PORT=$$(ENV_FILE=$(ENV_FILE) $(VENV_BIN)/python -c "from config import LISTEN_PORT; print(LISTEN_PORT)"); \
-		PROXY_HOST="localhost:$$PORT"; \
-		export http_proxy="http://$$PROXY_HOST"; \
-		export https_proxy="http://$$PROXY_HOST"; \
-		export HTTPS_PROXY="http://$$PROXY_HOST"; \
-		export HTTP_PROXY="http://$$PROXY_HOST"; \
-		export CURL_CA_BUNDLE=""; \
-		printf "1️⃣  Testing cache MISS (first download)...\n"; \
-		time curl -k -s "https://httpbin.org/bytes/10240" > /dev/null; \
-		printf "$(GREEN)✅ Cache miss completed$(RESET)\n"; \
-		printf "\n"; \
-		printf "2️⃣  Testing cache HIT (should be instant)...\n"; \
-		time curl -k -s "https://httpbin.org/bytes/10240" > /dev/null; \
-		printf "$(GREEN)✅ Cache hit completed$(RESET)\n"; \
-		printf "\n"; \
-		printf "3️⃣  Checking cache directory...\n"; \
-		find ./data -type f 2>/dev/null | head -10 || printf "Cache directory not found or empty\n"; \
-		printf "\n"; \
-		printf "$(GREEN)✅ All tests passed!$(RESET)\n"'
+test: ## Run E2E tests with pytest
+	@printf "$(YELLOW)🧪 Running E2E tests...$(RESET)\n"
+	@ENV_FILE=$(ENV_FILE) $(VENV_BIN)/pytest tests/ -v
 
 clean: ## Clean up cache and temporary files
 	@printf "$(YELLOW)🧹 Cleaning up...$(RESET)\n"
