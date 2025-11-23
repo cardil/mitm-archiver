@@ -1,0 +1,44 @@
+[Unit]
+Description=Mitmproxy Archiver
+After=network-online.target
+
+[Container]
+Image=docker.io/mitmproxy/mitmproxy:latest
+ContainerName=mitm-archiver
+
+# Mounts (Add :Z for SELinux support if needed)
+Volume=/etc/containers/apps/mitm-archiver/archiver.py:/opt/archiver.py:Z
+Volume=/etc/containers/apps/mitm-archiver/certs:/root/.mitmproxy:Z
+# Symlink isn't relabelled by Podman
+Volume=/mnt/storage/var/lib/mitm-archiver/data:/data:Z
+
+# Ports
+PublishPort=42424:8080
+
+# Environment Variables
+# Point directly to your existing .env file
+EnvironmentFile=/etc/containers/apps/mitm-archiver/.env
+
+# The Command
+# We break the command arguments into lines for readability
+# Connection strategy:
+#   - lazy: Keeps upstream connections open and reuses them (reduces reconnects)
+#   - keep_host_header: Preserves original Host header
+#   - upstream_cert: Validates upstream certificates
+Exec=/bin/sh -c "mitmdump \
+     -s /opt/archiver.py \
+     --set block_global=false \
+     --set connection_strategy=lazy \
+     --set keep_host_header=true \
+     --set upstream_cert=true \
+     --listen-port 8080 \
+     --proxyauth $PROXY_AUTH"
+
+[Service]
+Restart=always
+# Handle the user ID mapping (optional, but good for keeping files owned by root on host)
+# Or run inside a user session for rootless.
+
+[Install]
+WantedBy=multi-user.target
+
