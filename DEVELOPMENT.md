@@ -44,7 +44,7 @@ make clean-all   # Clean everything including venv
 
 ### Custom Configuration
 
-Edit `.env.local` (auto-created from `.env.example`):
+Edit `.env` (create from `.env.example` if needed):
 
 ```bash
 CACHE_DIR=./data
@@ -69,18 +69,18 @@ ENV_FILE=.env.custom make run
 
 ## Project Structure
 
-```
+```text
 mitm-archiver/
 ├── archiver.py              # Main mitmproxy script
 ├── config.py                # Configuration module
 ├── pyproject.toml           # Python project metadata
 ├── Makefile                 # Development commands
 ├── .env.example             # Config template
-├── .env.local               # Your local config (gitignored)
+├── .env                     # Your config (gitignored)
 ├── docker-compose.yml       # Docker Compose deployment
 ├── scripts/
 │   ├── mitm-archiver.container.template  # Quadlet template
-│   └── generate-quadlet.sh               # Quadlet generator
+│   └── generate-quadlet.py               # Quadlet generator
 ├── data/                    # Cache directory (gitignored)
 └── certs/                   # Certificates (gitignored)
 ```
@@ -107,7 +107,7 @@ ls -la ./data/
 
 ### Testing Docker Compose Locally
 ```bash
-# Create local .env
+# Create .env if not exists
 cp .env.example .env
 
 # Run
@@ -133,7 +133,7 @@ cat mitm-archiver.container  # Review generated file
 Use `-k` flag: `curl -k -x localhost:8080 https://example.com`
 
 **Port in use:**
-Change port in `.env.local`: `LISTEN_PORT=8081`
+Change port in `.env`: `LISTEN_PORT=8081`
 
 **Virtual environment issues:**
 ```bash

@@ -168,7 +168,9 @@ def response(flow: http.HTTPFlow):
             # Rename temporary file to final location
             if tmp_path.stat().st_size > 0:
                 tmp_path.rename(local_path)
-                ctx.log.info(f"✅ SAVED: {local_path} ({len(flow.response.content)} bytes)")
+                ctx.log.info(
+                    f"✅ SAVED: {local_path} ({len(flow.response.content)} bytes)"
+                )
             else:
                 tmp_path.unlink()
                 ctx.log.warn(f"Empty response, not saved: {flow.request.pretty_url}")
@@ -177,5 +179,3 @@ def response(flow: http.HTTPFlow):
             # Clean up temporary file on error
             if tmp_path.exists():
                 tmp_path.unlink()
-
-

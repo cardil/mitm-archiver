@@ -22,12 +22,17 @@ template_path = Path(__file__).parent / 'mitm-archiver.container.template'
 with open(template_path) as f:
     template = f.read()
 
+# Escape braces in proxy_auth for template.format (handles passwords with { or })
+safe_proxy_auth = (
+    proxy_auth.replace("{", "{{").replace("}", "}}") if proxy_auth else ""
+)
+
 output = template.format(
     SOURCE_DIR=source_dir,
     CACHE_DIR=cache_dir,
     CERTS_DIR=certs_dir,
     LISTEN_PORT=listen_port,
-    PROXY_AUTH=proxy_auth
+    PROXY_AUTH=safe_proxy_auth
 )
 
 output_file = 'mitm-archiver.container'

@@ -31,7 +31,7 @@ jobs:
       
       - name: Create test configuration
         run: |
-          cat > .env.local << EOF
+          cat > .env << EOF
           CACHE_DIR=./test-data
           CERTS_DIR=./test-certs
           EOF

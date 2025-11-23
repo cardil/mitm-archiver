@@ -12,7 +12,7 @@ INSTALL_GUARD := $(VENV)/.installed
 DEV_GUARD := $(VENV)/.dev_installed
 
 # Environment file
-ENV_FILE ?= .env.local
+ENV_FILE ?= .env
 
 # Color output
 BOLD := \033[1m
