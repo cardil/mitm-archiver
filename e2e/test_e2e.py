@@ -1,18 +1,132 @@
 """End-to-end tests for mitm-archiver."""
 import hashlib
+import os
+import socket
+import subprocess
+import sys
 import time
 from pathlib import Path
 
 import pytest
 import requests
 
-from config import CACHE_DIR, CERTS_DIR, LISTEN_PORT
+from config import CACHE_DIR, CERTS_DIR
+
+
+def find_free_port():
+    """Find a free port to use for the proxy."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+    return port
+
+
+@pytest.fixture(scope="session")
+def proxy_port():
+    """Get or find proxy port."""
+    # Check if using external proxy with predefined port
+    use_external = os.getenv("USE_EXTERNAL_PROXY", "").lower() in ("1", "true", "yes")
+    if use_external:
+        # Use port from environment or default
+        return int(os.getenv("LISTEN_PORT", "8080"))
+    
+    # Find free port for internal proxy
+    return find_free_port()
+
+
+@pytest.fixture(scope="session")
+def proxy_server(proxy_port):
+    """
+    Start proxy server for tests.
+    
+    If USE_EXTERNAL_PROXY env var is set, assumes proxy is already running
+    (for testing Docker/Quadlet deployments).
+    Otherwise, starts the proxy in background for the test session.
+    """
+    use_external = os.getenv("USE_EXTERNAL_PROXY", "").lower() in ("1", "true", "yes")
+    
+    if use_external:
+        print(f"\n🔗 Using external proxy server on port {proxy_port}")
+        # Just verify it's reachable
+        max_wait = 30
+        for i in range(max_wait):
+            try:
+                requests.get(
+                    "http://httpbin.org/status/200",
+                    proxies={"http": f"http://localhost:{proxy_port}"},
+                    timeout=1,
+                )
+                print("✅ External proxy is reachable")
+                yield None
+                return
+            except Exception:
+                if i < max_wait - 1:
+                    time.sleep(1)
+        raise RuntimeError(
+            f"External proxy not reachable on port {proxy_port} after {max_wait}s"
+        )
+    
+    # Start proxy in background
+    print(f"\n🚀 Starting proxy server on port {proxy_port}...")
+    
+    # Ensure directories exist
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    CERTS_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Start the proxy with dynamic port
+    python_exe = sys.executable
+    archiver_script = Path(__file__).parent.parent / "bin" / "mitm-archiver"
+    
+    env = os.environ.copy()
+    env["LISTEN_PORT"] = str(proxy_port)
+    
+    process = subprocess.Popen(
+        [python_exe, str(archiver_script)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    
+    # Wait for proxy to be ready
+    max_wait = 30
+    for i in range(max_wait):
+        try:
+            requests.get(
+                "http://httpbin.org/status/200",
+                proxies={"http": f"http://localhost:{proxy_port}"},
+                timeout=1,
+            )
+            print(f"✅ Proxy started successfully on port {proxy_port}")
+            break
+        except Exception:
+            if i < max_wait - 1:
+                time.sleep(1)
+            else:
+                process.kill()
+                stdout, stderr = process.communicate()
+                raise RuntimeError(
+                    f"Proxy failed to start after {max_wait}s\nStdout: {stdout}\nStderr: {stderr}"
+                ) from None
+    
+    yield process
+    
+    # Cleanup
+    print("\n🛑 Stopping proxy server...")
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+    print("✅ Proxy stopped")
 
 
 @pytest.fixture
-def proxy_config():
+def proxy_config(proxy_server, proxy_port):
     """Get proxy configuration."""
-    proxy_url = f"http://localhost:{LISTEN_PORT}"
+    proxy_url = f"http://localhost:{proxy_port}"
     ca_cert_path = CERTS_DIR / "mitmproxy-ca-cert.pem"
     ca_cert = str(ca_cert_path) if ca_cert_path.exists() else False
 

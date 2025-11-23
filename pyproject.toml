@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "mitm-archiver"
 version = "1.0.0"
@@ -15,6 +19,9 @@ dev = [
     "ruff>=0.1.0",
     "requests>=2.31.0",
 ]
+
+[tool.setuptools]
+py-modules = ["archiver", "config"]
 
 [tool.ruff]
 line-length = 88

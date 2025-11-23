@@ -132,9 +132,20 @@ def request(flow: http.HTTPFlow) -> None:
         flow.metadata["cache_hit"] = False
 
 
-def responseheaders(flow: http.HTTPFlow):
-    """CACHE MISS: Initialize file capture."""
+def response(flow: http.HTTPFlow):
+    """
+    Called after the full response has been read.
+
+    For cache misses with successful responses, save the content to disk.
+    This is a simpler approach than streaming - we write the full response
+    body after it's been received.
+    """
+    # Skip non-GET requests or failed responses
     if flow.request.method != "GET" or flow.response.status_code != 200:
+        return
+
+    # Skip if this was a cache hit (already served from disk in request hook)
+    if flow.metadata.get("cache_hit"):
         return
 
     try:
@@ -142,114 +153,29 @@ def responseheaders(flow: http.HTTPFlow):
     except ValueError:
         return
 
-    # Only start capturing if we don't have it yet
+    # Only save if we don't have it yet
     if not local_path.exists():
-        ctx.log.info(f"💾 CACHE MISS: Teeing stream to {local_path}")
+        ctx.log.info(f"💾 Saving response to {local_path}")
 
         tmp_path = local_path.with_suffix(local_path.suffix + ".tmp")
         local_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            # 1. Open file NOW and store handle in the flow object
-            # This keeps it open across multiple stream calls
-            f = tmp_path.open("wb")
-            flow.metadata["save_file"] = f
-            flow.metadata["save_path"] = str(local_path)
-            flow.metadata["tmp_path"] = str(tmp_path)
+            # Write the full response content to a temporary file
+            with tmp_path.open("wb") as f:
+                f.write(flow.response.content)
 
-            # 2. Define the stream processor
-            def tee_stream(chunks):
-                # Handle the "int vs bytes" edge case
-                iterator = [chunks] if isinstance(chunks, bytes) else chunks
-
-                # Retrieve our open file handle
-                f = flow.metadata.get("save_file")
-
-                for chunk in iterator:
-                    if f and not f.closed:
-                        try:
-                            f.write(chunk)
-                        except Exception as e:
-                            ctx.log.error(f"Write error: {e}")
-                    yield chunk
-
-            flow.response.stream = tee_stream
-
+            # Rename temporary file to final location
+            if tmp_path.stat().st_size > 0:
+                tmp_path.rename(local_path)
+                ctx.log.info(f"✅ SAVED: {local_path} ({len(flow.response.content)} bytes)")
+            else:
+                tmp_path.unlink()
+                ctx.log.warn(f"Empty response, not saved: {flow.request.pretty_url}")
         except Exception as e:
-            ctx.log.error(f"Failed to open tmp file: {e}")
+            ctx.log.error(f"Failed to save response: {e}")
+            # Clean up temporary file on error
+            if tmp_path.exists():
+                tmp_path.unlink()
 
 
-def response(flow: http.HTTPFlow):
-    """Called after the full response has been read - finalize file."""
-    f = flow.metadata.get("save_file")
-    tmp_path = flow.metadata.get("tmp_path")
-    save_path = flow.metadata.get("save_path")
-
-    # Close and rename the file if we were saving it
-    if f:
-        try:
-            if not f.closed:
-                f.flush()
-                f.close()
-                ctx.log.info("Response complete, file closed")
-        except Exception as e:
-            ctx.log.error(f"Error closing file: {e}")
-
-        # Clean up metadata
-        if "save_file" in flow.metadata:
-            del flow.metadata["save_file"]
-
-        # Rename tmp to final
-        if tmp_path and save_path:
-            tmp_path_obj = Path(tmp_path)
-            save_path_obj = Path(save_path)
-            if tmp_path_obj.exists():
-                if tmp_path_obj.stat().st_size > 0:
-                    try:
-                        tmp_path_obj.rename(save_path_obj)
-                        ctx.log.info(f"✅ DOWNLOAD COMPLETE: {save_path}")
-                    except OSError as e:
-                        ctx.log.error(f"Rename failed: {e}")
-                else:
-                    tmp_path_obj.unlink()
-                    ctx.log.warn(f"Empty tmp file deleted: {tmp_path}")
-
-
-def error(flow: http.HTTPFlow):
-    """Handle network errors/disconnects: Cleanup."""
-    cleanup(flow, success=False)
-
-
-def done(flow: http.HTTPFlow):
-    """Request finished: Finalize the file."""
-    cleanup(flow, success=True)
-
-
-def cleanup(flow: http.HTTPFlow, success: bool):
-    """Helper to close file and rename/delete - mostly for error cases."""
-    # For streaming responses, the stream's finally block handles everything
-    # This is mainly for error cases where streaming never started
-
-    f = flow.metadata.get("save_file")
-    tmp_path = flow.metadata.get("tmp_path")
-
-    # Only clean up if the file handle still exists (wasn't closed by stream)
-    if f:
-        try:
-            if not f.closed:
-                f.flush()
-                f.close()
-                ctx.log.info(f"File closed in error cleanup (success={success})")
-        except Exception as e:
-            ctx.log.error(f"Error closing file in cleanup: {e}")
-
-        # Clean up metadata
-        if "save_file" in flow.metadata:
-            del flow.metadata["save_file"]
-
-        # On error/disconnect, delete the partial file
-        if not success and tmp_path:
-            tmp_path_obj = Path(tmp_path)
-            if tmp_path_obj.exists():
-                tmp_path_obj.unlink()
-                ctx.log.info(f"❌ INCOMPLETE: Deleted partial {tmp_path}")

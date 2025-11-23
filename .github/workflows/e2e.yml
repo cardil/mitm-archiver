@@ -26,46 +26,18 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
       
-      - name: Setup environment
-        run: make setup
+      - name: Setup development environment
+        run: make dev
       
       - name: Create test configuration
         run: |
           cat > .env.local << EOF
           CACHE_DIR=./test-data
-          LISTEN_PORT=8080
           CERTS_DIR=./test-certs
           EOF
       
-      - name: Start proxy in background
-        run: |
-          mkdir -p test-data test-certs
-          nohup make run > proxy.log 2>&1 &
-          echo $! > proxy.pid
-          
-          # Wait for proxy to start
-          for i in {1..30}; do
-            if curl -s -o /dev/null -w "%{http_code}" --proxy http://localhost:8080 http://httpbin.org/get 2>/dev/null | grep -q "200"; then
-              echo "Proxy started successfully"
-              break
-            fi
-            echo "Waiting for proxy... attempt $i/30"
-            sleep 2
-          done
-      
-      - name: Run E2E tests
-        run: make test
-      
-      - name: Show proxy logs
-        if: always()
-        run: cat proxy.log || true
-      
-      - name: Stop proxy
-        if: always()
-        run: |
-          if [ -f proxy.pid ]; then
-            kill $(cat proxy.pid) || true
-          fi
+      - name: Run E2E tests (proxy started by pytest)
+        run: make e2e
 
   test-docker-compose:
     name: Test Docker Compose
@@ -73,11 +45,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Find free port
+        id: port
+        run: |
+          PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+          echo "port=$PORT" >> $GITHUB_OUTPUT
+          echo "Using port: $PORT"
+      
       - name: Create test configuration
         run: |
           cat > .env << EOF
           CACHE_DIR=./test-data
-          LISTEN_PORT=8080
+          LISTEN_PORT=${{ steps.port.outputs.port }}
           CERTS_DIR=./test-certs
           EOF
       
@@ -89,40 +68,27 @@ jobs:
           # Wait for proxy to start
           for i in {1..30}; do
             if docker compose logs | grep -q "Proxy server listening"; then
-              echo "Proxy started successfully"
+              echo "✅ Proxy started successfully"
               break
             fi
             echo "Waiting for proxy... attempt $i/30"
             sleep 2
           done
       
-      - name: Test cache miss (first request)
-        run: |
-          time curl -x http://localhost:8080 -k -s "https://httpbin.org/bytes/10240" > /dev/null
-          echo "Cache miss completed"
+      - name: Set up Python for tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
       
-      - name: Test cache hit (second request)
-        run: |
-          START=$(date +%s%N)
-          curl -x http://localhost:8080 -k -s "https://httpbin.org/bytes/10240" > /dev/null
-          END=$(date +%s%N)
-          DURATION=$((($END - $START) / 1000000))
-          echo "Cache hit took ${DURATION}ms"
-          
-          # Cache hit should be very fast (< 100ms)
-          if [ $DURATION -gt 100 ]; then
-            echo "Cache hit too slow: ${DURATION}ms"
-            exit 1
-          fi
+      - name: Setup development environment
+        run: make dev
       
-      - name: Verify cache files
-        run: |
-          FILE_COUNT=$(find test-data -type f | wc -l)
-          if [ $FILE_COUNT -eq 0 ]; then
-            echo "No cache files created"
-            exit 1
-          fi
-          echo "Found $FILE_COUNT cache file(s)"
+      - name: Run E2E tests (using external Docker proxy)
+        env:
+          USE_EXTERNAL_PROXY: "1"
+          LISTEN_PORT: ${{ steps.port.outputs.port }}
+        run: make e2e
       
       - name: Show logs
         if: always()
@@ -133,43 +99,75 @@ jobs:
         run: docker compose down
 
   test-quadlet:
-    name: Test Quadlet Generation
+    name: Test Quadlet with systemd
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       
-      - name: Set up Python for generator
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
       
-      - name: Install python-dotenv for generator
-        run: pip install python-dotenv
+      - name: Setup development environment
+        run: make dev
+      
+      - name: Find free port
+        id: port
+        run: |
+          PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+          echo "port=$PORT" >> $GITHUB_OUTPUT
+          echo "Using port: $PORT"
       
       - name: Create test configuration
         run: |
           cat > .env << EOF
           CACHE_DIR=$(pwd)/test-data
-          LISTEN_PORT=8080
+          LISTEN_PORT=${{ steps.port.outputs.port }}
           CERTS_DIR=$(pwd)/test-certs
           EOF
+          mkdir -p test-data test-certs
       
       - name: Generate Quadlet file
         run: |
-          mkdir -p test-data test-certs
           python3 scripts/generate-quadlet.py
+          echo "✅ Quadlet file generated"
           cat mitm-archiver.container
       
-      - name: Validate Quadlet file
+      - name: Install Quadlet file for systemd user
         run: |
-          # Verify generated file exists and contains expected content
-          if [ ! -f mitm-archiver.container ]; then
-            echo "Quadlet file not generated"
-            exit 1
-          fi
+          mkdir -p ~/.config/containers/systemd
+          cp mitm-archiver.container ~/.config/containers/systemd/
+          systemctl --user daemon-reload
+      
+      - name: Start service with systemctl
+        run: |
+          systemctl --user start mitm-archiver.service
           
-          # Check for key sections
-          grep -q "\[Container\]" mitm-archiver.container
-          grep -q "Image=docker.io/mitmproxy/mitmproxy:latest" mitm-archiver.container
-          grep -q "Volume=.*:/opt/mitm-archiver:ro,Z" mitm-archiver.container
-          echo "Quadlet file validation passed"
+          # Wait for service to be active
+          for i in {1..30}; do
+            if systemctl --user is-active mitm-archiver.service >/dev/null 2>&1; then
+              echo "✅ Service started successfully"
+              break
+            fi
+            echo "Waiting for service... attempt $i/30"
+            sleep 2
+          done
+          
+          # Show service status
+          systemctl --user status mitm-archiver.service
+      
+      - name: Run E2E tests (using systemd Quadlet service)
+        env:
+          USE_EXTERNAL_PROXY: "1"
+          LISTEN_PORT: ${{ steps.port.outputs.port }}
+        run: make e2e
+      
+      - name: Show service logs
+        if: always()
+        run: journalctl --user -u mitm-archiver.service || true
+      
+      - name: Stop service
+        if: always()
+        run: systemctl --user stop mitm-archiver.service || true
