@@ -147,6 +147,9 @@ venv.bak/
 # Local development
 certs/
 data/
+# Local testing
+test-certs/
+test-data/
 
 # Generated Quadlet files
 mitm-archiver.container

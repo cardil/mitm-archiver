@@ -124,8 +124,8 @@ def request(flow: http.HTTPFlow) -> None:
             host = flow.request.host
             if host and host not in _seen_hosts:
                 _seen_hosts.add(host)
-        except Exception:
-            pass
+        except (AttributeError, TypeError) as e:
+            ctx.log.debug(f"Could not track request host for cache miss: {e}")
         ctx.log.info(
             f"💾 CACHE MISS: Will fetch from upstream: {flow.request.pretty_url}"
         )

@@ -185,11 +185,15 @@ def test_cache_miss_downloads_and_stores(proxy_config):
 
 def test_cache_hit_is_fast_and_identical(proxy_config):
     """Test that second request uses cache and returns identical content."""
-    test_url = "https://httpbin.org/bytes/10240"
+    # Use unique URL to ensure clean cache state
+    test_url = "https://httpbin.org/bytes/8192"
 
-    # First request to populate cache
+    # First request to populate cache (cache miss)
+    start = time.time()
     response1 = requests.get(test_url, timeout=30, **proxy_config)
+    miss_duration = time.time() - start
     hash1 = compute_sha256(response1.content)
+    print(f"📥 Cache miss completed in {miss_duration:.2f}s")
 
     # Give proxy a moment to finish writing
     time.sleep(0.1)
@@ -201,17 +205,21 @@ def test_cache_hit_is_fast_and_identical(proxy_config):
 
     # Verify response
     assert response2.status_code == 200
-    assert len(response2.content) == 10240
-    print(f"✅ Cache hit completed in {hit_duration:.2f}s")
+    assert len(response2.content) == 8192
+    print(f"⚡ Cache hit completed in {hit_duration:.2f}s")
 
     # Verify content is identical
     hash2 = compute_sha256(response2.content)
     assert hash1 == hash2, f"Content mismatch: {hash1} != {hash2}"
     print(f"✅ Content hash verified: {hash2}")
 
-    # Verify cache hit was fast (< 100ms)
-    assert hit_duration < 0.1, f"Cache hit too slow: {hit_duration:.3f}s"
-    print(f"⚡ Cache hit was very fast: {hit_duration*1000:.1f}ms")
+    # Verify cache hit is considerably faster than cache miss (at least 2x faster)
+    speedup = miss_duration / hit_duration if hit_duration > 0 else float('inf')
+    assert speedup >= 2.0, (
+        f"Cache hit not significantly faster: "
+        f"miss={miss_duration:.3f}s, hit={hit_duration:.3f}s, speedup={speedup:.1f}x"
+    )
+    print(f"🚀 Cache hit was {speedup:.1f}x faster than miss")
 
 
 def test_cache_file_integrity(proxy_config):

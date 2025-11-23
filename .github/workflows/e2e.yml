@@ -65,15 +65,22 @@ jobs:
           mkdir -p test-data test-certs
           docker compose up -d
           
-          # Wait for proxy to start
+          # Wait for proxy to be responsive
+          started=0
           for i in {1..30}; do
-            if docker compose logs | grep -q "Proxy server listening"; then
-              echo "✅ Proxy started successfully"
+            if curl -x http://localhost:${{ steps.port.outputs.port }} -I http://httpbin.org/status/200 --connect-timeout 1 --max-time 2 2>/dev/null | head -1 | grep -q "200"; then
+              echo "✅ Proxy is responsive"
+              started=1
               break
             fi
-            echo "Waiting for proxy... attempt $i/30"
+            echo "Waiting for proxy to respond... attempt $i/30"
             sleep 2
           done
+          if [ "$started" -ne 1 ]; then
+            echo "❌ Proxy did not become responsive within 60s timeout"
+            docker compose logs
+            exit 1
+          fi
       
       - name: Set up Python for tests
         uses: actions/setup-python@v5
