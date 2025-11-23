@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Mitm-archiver launcher - centralizes mitmdump parameters."""
+import os
+import sys
+from pathlib import Path
+
+# Add parent directory to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config import LISTEN_PORT, PROXY_AUTH, CERTS_DIR
+
+# Build mitmdump command with hardcoded best-practice settings
+# archiver.py is in repo root (parent.parent of bin/mitm-archiver)
+archiver_path = Path(__file__).parent.parent / 'archiver.py'
+cmd = [
+    'mitmdump',
+    '-s', str(archiver_path),
+    '--set', 'block_global=false',
+    '--set', 'connection_strategy=lazy',
+    '--set', 'keep_host_header=true',
+    '--set', 'upstream_cert=true',
+    '--set', f'confdir={CERTS_DIR}',
+    '--listen-port', str(LISTEN_PORT)
+]
+
+if PROXY_AUTH:
+    cmd.extend(['--proxyauth', PROXY_AUTH])
+
+# Execute mitmdump
+os.execvp(cmd[0], cmd)

@@ -1,0 +1,24 @@
+[project]
+name = "mitm-archiver"
+version = "1.0.0"
+description = "Permanent lazy mirror proxy for CI/CD external dependencies"
+requires-python = ">=3.10"
+dependencies = [
+    "mitmproxy>=10.1.0,<11.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.black]
+line-length = 120
+target-version = ["py310"]

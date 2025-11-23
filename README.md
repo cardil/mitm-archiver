@@ -1,86 +1,185 @@
 # Mitm Archiver
 
-A mitm proxy that archives the downloads (download once).
+A mitm proxy that archives downloads (download once) - acting as a permanent "Lazy Mirror" for external assets used in CI/CD pipelines.
 
-## 1. Background & Problem Statement
-Our CI/CD pipelines on GitHub Actions frequently depend on external assets (datasets, binaries, large artifacts) hosted by third-party vendors.
+**What it does:** Intercepts HTTP/HTTPS traffic and permanently caches downloaded files. When upstream vendors delete, move, or change files, the proxy continues serving cached copies indefinitely - ensuring build pipeline reliability.
 
-**Risks:**
-* **Upstream Volatility:** Vendors may delete, move, or change these files without warning, breaking build pipelines.
-* **Reliability:** Upstream servers may experience downtime or rate limiting.
-* **Inefficiency:** Repeatedly downloading large files (GBs) for every workflow run is slow and bandwidth-intensive.
+## Quick Start
 
-## 2. Purpose & Scope
-The goal is to build a **Self-Hosted Intercepting Proxy** that acts as a permanent "Lazy Mirror" for these external assets.
+### Local Development
+```bash
+make setup  # Create venv and install dependencies
+make run    # Start proxy on localhost:8080
+make test   # Test with sample requests
+```
 
-Unlike a standard cache (which expires files) or a repository manager (which requires manual uploading), this tool must:
-1.  **Archive Automatically:** Save a local copy of any file downloaded through it during a build.
-2.  **Ensure Permanence:** Treat downloaded files as permanent archives, not temporary cache. If the upstream vendor deletes a file, our system must continue serving the local copy indefinitely.
-3.  **Be Transparent:** Require zero code changes to the build logic (scripts using `curl`/`wget` should work as-is via standard Proxy environment variables).
+See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed developer documentation.
 
----
+### Production Deployment
 
-## 3. Functional Requirements
-
-### 3.1 Traffic Interception
-* The system must accept standard HTTP and HTTPS proxy connections (via `HTTP_PROXY` / `HTTPS_PROXY`).
-* The system must perform **SSL/TLS Interception (Man-in-the-Middle)** to inspect URL paths and cache content securely.
-* The system must provide a generated **Certificate Authority (CA)** file to be trusted by the client (GitHub Runner).
-
-### 3.2 "Tee-Streaming" (The Core Logic)
-To handle multi-gigabyte downloads efficiently:
-* **Cache Miss (First Request):** The system must stream the data from the Upstream Vendor to the Client immediately while **simultaneously** writing a copy to the local disk.
-    * *Constraint:* Must not buffer the full file in RAM.
-    * *Constraint:* Must handle client disconnects gracefully (delete partial files).
-* **Cache Hit (Subsequent Requests):** The system must serve the file directly from the local disk, **without sending the GET request** to the upstream vendor.
-    * *Constraint:* Must serve the file even if the upstream vendor is offline or returns a 404.
-    * *Note:* For HTTPS URLs, a TLS CONNECT still occurs to obtain the upstream certificate (required for proper SSL/TLS interception), but the actual HTTP GET request is never sent upstream.
-
-### 3.3 Connection Optimization
-* **Connection Reuse:** The system must reuse upstream TLS connections instead of disconnecting after each request to avoid suspicious activity patterns.
-    * *Implementation:* Uses `connection_strategy=lazy` to keep connections alive.
-    * *Benefit:* Reduces CDN rate limiting risk and improves performance.
-* **Smart Request Handling:** Cache hits are detected AFTER the TLS handshake but BEFORE the GET request is sent, minimizing bandwidth usage while maintaining proper SSL/TLS interception.
-
-### 3.4 Storage & Persistence
-* Files must be stored on the host filesystem using a directory structure mirroring the URL path (e.g., `/data/example.com/files/dataset.zip`).
-* Storage must be persistent across container restarts and host reboots.
-
-### 3.5 Security
-* **Access Control:** The proxy must reject unauthenticated connections. It must enforce Basic Authentication (Username/Password).
-* **Path Sanitization:** The system must strictly validate URL paths to prevent Directory Traversal attacks (prevent malicious URLs from writing to `/etc/` or other system paths).
+Choose your deployment method:
+- [Docker Compose](#docker-compose-deployment) - Portable, works anywhere
+- [Systemd Quadlet](#quadlet-deployment-rhelfedora) - Native systemd integration for RHEL/Fedora
 
 ---
 
+## Docker Compose Deployment
+
+### Prerequisites
+- Docker and Docker Compose installed
+- Root or docker group access
+
+### Installation
+
+1. **Prepare directories:**
+   ```bash
+   sudo mkdir -p /var/lib/mitm-archiver/{data,certs}
+   ```
+
+2. **Configure:**
+   ```bash
+   cp .env.example .env
+   vi .env
+   ```
+   
+   Update for production:
+   ```bash
+   CACHE_DIR=/var/lib/mitm-archiver/data
+   LISTEN_PORT=42424
+   CERTS_DIR=/var/lib/mitm-archiver/certs
+   PROXY_AUTH=username:strongpassword
+   ```
+
+3. **Deploy:**
+   ```bash
+   docker compose up -d
+   ```
+
+4. **Verify:**
+   ```bash
+   docker compose logs -f
+   curl -x localhost:42424 http://httpbin.org/get
+   ```
+
+### Management
+
+```bash
+# View logs
+docker compose logs -f
+
+# Restart
+docker compose restart
+
+# Stop
+docker compose down
+
+# Update configuration
+vi .env
+docker compose up -d  # Recreates with new config
+```
+
 ---
 
-## 4. Implementation Details
+## Quadlet Deployment (RHEL/Fedora)
 
-### 4.1 Request Flow
-1. **Client CONNECT:** Client initiates HTTPS CONNECT request through proxy.
-2. **TLS Handshake:** Proxy establishes TLS connection to upstream server (if not already connected).
-3. **Certificate Inspection:** Proxy examines upstream certificate and generates matching fake certificate.
-4. **Client Request:** Client sends HTTP GET request through established tunnel.
-5. **Cache Check:** Proxy checks local disk cache:
-   - **HIT:** Serve file from disk immediately, no upstream GET sent, connection kept alive for reuse.
-   - **MISS:** Forward GET to upstream, stream response to client while simultaneously writing to disk.
-6. **Connection Reuse:** Upstream connection remains open for subsequent requests to the same host.
+### Prerequisites
+- Podman 4.4+ with Quadlet support
+- systemd
 
-### 4.2 File Streaming Architecture
-* **Streaming Response:** Uses mitmproxy's streaming API to avoid buffering large files in memory.
-* **Tee Implementation:** Custom stream processor writes chunks to disk while yielding them to the client.
-* **Atomic Operations:** Downloads write to `.tmp` files and rename on completion to prevent serving partial files.
-* **Error Handling:** Incomplete downloads are automatically deleted on client disconnect or network errors.
+### Installation
+
+1. **Prepare directories:**
+   ```bash
+   sudo mkdir -p /var/lib/mitm-archiver/{data,certs}
+   
+   # SELinux contexts (if enabled)
+   sudo chcon -R -t container_file_t /var/lib/mitm-archiver
+   ```
+
+2. **Configure:**
+   ```bash
+   cp .env.example .env
+   vi .env
+   ```
+   
+   Update for production:
+   ```bash
+   CACHE_DIR=/var/lib/mitm-archiver/data
+   LISTEN_PORT=42424
+   CERTS_DIR=/var/lib/mitm-archiver/certs
+   PROXY_AUTH=username:strongpassword
+   ```
+
+3. **Generate and install Quadlet:**
+   ```bash
+   python3 scripts/generate-quadlet.py
+   sudo cp mitm-archiver.container /etc/containers/systemd/
+   sudo systemctl daemon-reload
+   ```
+
+4. **Start service:**
+   ```bash
+   sudo systemctl enable --now mitm-archiver.service
+   ```
+
+5. **Verify:**
+   ```bash
+   sudo systemctl status mitm-archiver.service
+   sudo journalctl -u mitm-archiver.service -f
+   curl -x localhost:42424 http://httpbin.org/get
+   ```
+
+### Management
+
+```bash
+# View logs
+sudo journalctl -u mitm-archiver.service -f
+
+# Restart
+sudo systemctl restart mitm-archiver.service
+
+# Stop
+sudo systemctl stop mitm-archiver.service
+
+# Update configuration
+vi .env
+python3 scripts/generate-quadlet.py
+sudo cp mitm-archiver.container /etc/containers/systemd/
+sudo systemctl daemon-reload
+sudo systemctl restart mitm-archiver.service
+```
 
 ---
 
-## 5. Environmental & System Requirements
+## Configuration
 
-### 5.1 Infrastructure
-* **Host OS:** Red Hat Enterprise Linux 9 (RHEL 9).
-* **Runtime:** Podman (Rootful or Rootless with Quadlets).
-* **Service Management:** Integration with `systemd` for auto-start and log management.
+All settings are controlled via environment variables in `.env` file:
 
-### 5.2 Constraints
-* **SELinux:** The solution must be compatible with RHEL SELinux enforcement (requires correct context labeling on storage volumes).
-* **Network:** Inbound traffic on a specific non-standard port (e.g., 54321) must be allowed through the host firewall.
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `CACHE_DIR` | Directory for cached files | `/var/lib/mitm-archiver/data` |
+| `LISTEN_PORT` | Proxy listen port | `42424` |
+| `CERTS_DIR` | SSL certificates storage | `/var/lib/mitm-archiver/certs` |
+| `PROXY_AUTH` | Authentication (optional) | `username:password` |
+
+## Security Considerations
+
+- Always set `PROXY_AUTH` in production
+- Use strong passwords
+- Restrict network access with firewall rules
+- Regularly update the mitmproxy image
+- Monitor cache directory size
+
+## Troubleshooting
+
+**Port already in use:**
+Change `LISTEN_PORT` in `.env` file
+
+**Permission denied:**
+Check directory ownership and SELinux contexts
+
+**Certificate errors:**
+Verify `CERTS_DIR` is writable and persistent
+
+**Cache not persisting:**
+Ensure `CACHE_DIR` is mounted correctly

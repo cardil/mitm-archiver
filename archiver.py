@@ -1,20 +1,38 @@
 import os
+from pathlib import Path
 from mitmproxy import http, ctx
+from config import CACHE_DIR
 
-# Configuration
-CACHE_DIR = "/data"
-CHUNK_SIZE = 8192  # 8KB chunks for streaming
+# Chunk size for streaming responses (in bytes)
+CHUNK_SIZE = 8192
 
 # Connection optimization: Track known TLS hosts to enable connection reuse
 # Mitmproxy will keep these connections alive instead of reconnecting each time
 _seen_hosts = set()
 
-def get_safe_path(url_path: str) -> str:
+def get_safe_path(url_path: str) -> Path:
+    """
+    Convert URL to safe filesystem path within CACHE_DIR.
+    
+    Args:
+        url_path: URL to convert to filesystem path
+        
+    Returns:
+        Path object pointing to the cache file location
+        
+    Raises:
+        ValueError: If the resulting path is outside CACHE_DIR
+    """
     clean_path = url_path.replace("https://", "").replace("http://", "").split("?")[0]
-    final_path = os.path.join(CACHE_DIR, clean_path)
-    real_path = os.path.abspath(final_path)
-    if not os.path.commonprefix([real_path, os.path.abspath(CACHE_DIR)]) == os.path.abspath(CACHE_DIR):
+    final_path = CACHE_DIR / clean_path
+    real_path = final_path.resolve()
+    
+    # Security check: ensure the path is within CACHE_DIR
+    try:
+        real_path.relative_to(CACHE_DIR.resolve())
+    except ValueError:
         raise ValueError(f"Invalid path: {url_path}")
+    
     return real_path
 
 def tls_clienthello(data):
@@ -72,16 +90,17 @@ def request(flow: http.HTTPFlow) -> None:
 
     try:
         local_path = get_safe_path(flow.request.pretty_url)
-    except ValueError: return
+    except ValueError:
+        return
 
-    if os.path.exists(local_path):
+    if local_path.exists():
         ctx.log.info(f"⚡ CACHE HIT: Serving {local_path} (no upstream GET)")
         try:
             # Mark that we served from cache (upstream connection will be kept alive)
             flow.metadata["cache_hit"] = True
             
             # Load entire file into memory (TODO: streaming implementation)
-            with open(local_path, "rb") as f:
+            with local_path.open("rb") as f:
                 flow.response = http.Response.make(
                     200,
                     f.read(),
@@ -108,22 +127,23 @@ def responseheaders(flow: http.HTTPFlow):
 
     try:
         local_path = get_safe_path(flow.request.pretty_url)
-    except ValueError: return
+    except ValueError:
+        return
 
     # Only start capturing if we don't have it yet
-    if not os.path.exists(local_path):
+    if not local_path.exists():
         ctx.log.info(f"💾 CACHE MISS: Teeing stream to {local_path}")
         
-        tmp_path = local_path + ".tmp"
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        tmp_path = local_path.with_suffix(local_path.suffix + ".tmp")
+        local_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             # 1. Open file NOW and store handle in the flow object
             # This keeps it open across multiple stream calls
-            f = open(tmp_path, "wb")
+            f = tmp_path.open("wb")
             flow.metadata["save_file"] = f
-            flow.metadata["save_path"] = local_path
-            flow.metadata["tmp_path"] = tmp_path
+            flow.metadata["save_path"] = str(local_path)
+            flow.metadata["tmp_path"] = str(tmp_path)
             
             # 2. Define the stream processor
             def tee_stream(chunks):
@@ -167,16 +187,19 @@ def response(flow: http.HTTPFlow):
             del flow.metadata["save_file"]
         
         # Rename tmp to final
-        if tmp_path and save_path and os.path.exists(tmp_path):
-            if os.path.getsize(tmp_path) > 0:
-                try:
-                    os.rename(tmp_path, save_path)
-                    ctx.log.info(f"✅ DOWNLOAD COMPLETE: {save_path}")
-                except OSError as e:
-                    ctx.log.error(f"Rename failed: {e}")
-            else:
-                os.remove(tmp_path)
-                ctx.log.warn(f"Empty tmp file deleted: {tmp_path}")
+        if tmp_path and save_path:
+            tmp_path_obj = Path(tmp_path)
+            save_path_obj = Path(save_path)
+            if tmp_path_obj.exists():
+                if tmp_path_obj.stat().st_size > 0:
+                    try:
+                        tmp_path_obj.rename(save_path_obj)
+                        ctx.log.info(f"✅ DOWNLOAD COMPLETE: {save_path}")
+                    except OSError as e:
+                        ctx.log.error(f"Rename failed: {e}")
+                else:
+                    tmp_path_obj.unlink()
+                    ctx.log.warn(f"Empty tmp file deleted: {tmp_path}")
 
 def error(flow: http.HTTPFlow):
     """Handle network errors/disconnects: Cleanup."""
@@ -210,6 +233,8 @@ def cleanup(flow: http.HTTPFlow, success: bool):
             del flow.metadata["save_file"]
         
         # On error/disconnect, delete the partial file
-        if not success and tmp_path and os.path.exists(tmp_path):
-            os.remove(tmp_path)
-            ctx.log.info(f"❌ INCOMPLETE: Deleted partial {tmp_path}")
+        if not success and tmp_path:
+            tmp_path_obj = Path(tmp_path)
+            if tmp_path_obj.exists():
+                tmp_path_obj.unlink()
+                ctx.log.info(f"❌ INCOMPLETE: Deleted partial {tmp_path}")

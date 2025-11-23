@@ -1,0 +1,34 @@
+services:
+  mitm-archiver:
+    image: mitmproxy/mitmproxy:latest
+    container_name: mitm-archiver
+    restart: unless-stopped
+    
+    env_file:
+      - .env
+    
+    volumes:
+      # Mount source directory (read-only with SELinux label)
+      - .:/opt/mitm-archiver:ro,Z
+      
+      # Mount certificates directory (with SELinux label)
+      - ${CERTS_DIR:-./certs}:/root/.mitmproxy:Z
+      
+      # Mount cache directory (with SELinux label)
+      - ${CACHE_DIR:-./data}:/data:Z
+    
+    ports:
+      - "${LISTEN_PORT:-42424}:8080"
+    
+    environment:
+      # Configuration via environment variables
+      - CACHE_DIR=/data
+      - CERTS_DIR=/root/.mitmproxy
+      - LISTEN_PORT=8080
+      - PROXY_AUTH=${PROXY_AUTH:-}
+    
+    command: python3 /opt/mitm-archiver/bin/mitm-archiver
+
+networks:
+  default:
+    name: mitm-archiver-net

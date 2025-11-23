@@ -144,6 +144,12 @@ ENV/
 env.bak/
 venv.bak/
 
+# Local development
+certs/
+data/
+
+# Generated Quadlet files
+mitm-archiver.container
 # Spyder project settings
 .spyderproject
 .spyproject
