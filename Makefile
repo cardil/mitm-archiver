@@ -1,4 +1,4 @@
-.PHONY: help setup dev run e2e clean clean-all format lint config-show start
+.PHONY: help setup dev run e2e clean clean-all format lint config-show quadlet start
 
 # Default Python interpreter
 PYTHON := python3
@@ -102,6 +102,11 @@ lint: $(DEV_GUARD) ## Lint code with ruff
 	@printf "$(YELLOW)🔍 Linting code...$(RESET)\n"
 	$(VENV_BIN)/ruff check archiver.py config.py
 	@printf "$(GREEN)✅ Linting complete$(RESET)\n"
+
+quadlet: $(INSTALL_GUARD) ## Generate Quadlet systemd container file
+	@printf "$(YELLOW)📦 Generating Quadlet file...$(RESET)\n"
+	@ENV_FILE=$(ENV_FILE) $(VENV_BIN)/python scripts/generate-quadlet.py
+	@printf "$(GREEN)✅ Quadlet file generated: mitm-archiver.container$(RESET)\n"
 
 # Convenience alias
 start: run ## Alias for run

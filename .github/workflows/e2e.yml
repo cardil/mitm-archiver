@@ -131,8 +131,7 @@ jobs:
       
       - name: Generate Quadlet file
         run: |
-          python3 scripts/generate-quadlet.py
-          echo "✅ Quadlet file generated"
+          make quadlet
           cat mitm-archiver.container
       
       - name: Install Quadlet file for systemd user
