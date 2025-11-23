@@ -1,0 +1,30 @@
+[Unit]
+Description=Mitmproxy Archiver
+After=network-online.target
+
+[Container]
+Image=docker.io/mitmproxy/mitmproxy:latest
+ContainerName=mitm-archiver
+
+# Mounts - paths from environment/config (read-only for scripts, writable for data)
+Volume={SOURCE_DIR}:/opt/mitm-archiver:ro,Z
+Volume={CERTS_DIR}:/root/.mitmproxy:Z
+Volume={CACHE_DIR}:/data:Z
+
+# Ports
+PublishPort={LISTEN_PORT}:8080
+
+# Environment Variables
+Environment=CACHE_DIR=/data
+Environment=CERTS_DIR=/root/.mitmproxy
+Environment=LISTEN_PORT=8080
+Environment=PROXY_AUTH={PROXY_AUTH}
+
+# Command - use centralized launcher
+Exec=python3 /opt/mitm-archiver/bin/mitm-archiver
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

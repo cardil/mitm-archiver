@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""Mitm-archiver launcher - centralizes mitmdump parameters."""
+import os
+import sys
+from pathlib import Path
+
+# Add parent directory to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config import CERTS_DIR, LISTEN_PORT, PROXY_AUTH
+
+# Find mitmdump in venv or system PATH
+venv_bin = Path(sys.executable).parent
+mitmdump_path = venv_bin / 'mitmdump'
+if mitmdump_path.exists():
+    # Use venv mitmdump with absolute path
+    mitmdump = str(mitmdump_path.resolve())
+else:
+    # Fall back to PATH
+    mitmdump = 'mitmdump'
+
+# Build mitmdump command with hardcoded best-practice settings
+# archiver.py is in repo root (parent.parent of bin/mitm-archiver)
+archiver_path = str((Path(__file__).parent.parent / 'archiver.py').resolve())
+cmd = [
+    mitmdump,
+    '-s', archiver_path,
+    '--set', 'block_global=false',
+    '--set', 'connection_strategy=lazy',
+    '--set', 'keep_host_header=true',
+    '--set', 'upstream_cert=true',
+    '--set', f'confdir={CERTS_DIR}',
+    '--listen-port', str(LISTEN_PORT)
+]
+
+if PROXY_AUTH:
+    cmd.extend(['--proxyauth', PROXY_AUTH])
+
+# Execute mitmdump - use execv with absolute path, or execvp for PATH lookup
+if mitmdump_path.exists():
+    os.execv(mitmdump, cmd)
+else:
+    os.execvp(cmd[0], cmd)

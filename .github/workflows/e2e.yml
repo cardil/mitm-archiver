@@ -1,0 +1,179 @@
+name: E2E Tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'release-**'
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+      - 'release-**'
+  workflow_dispatch:
+
+jobs:
+  test-local:
+    name: Test Local Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Setup development environment
+        run: make dev
+      
+      - name: Create test configuration
+        run: |
+          cat > .env << EOF
+          CACHE_DIR=./test-data
+          CERTS_DIR=./test-certs
+          EOF
+      
+      - name: Run E2E tests (proxy started by pytest)
+        run: make e2e
+
+  test-docker-compose:
+    name: Test Docker Compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Find free port
+        id: port
+        run: |
+          PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+          echo "port=$PORT" >> $GITHUB_OUTPUT
+          echo "Using port: $PORT"
+      
+      - name: Create test configuration
+        run: |
+          cat > .env << EOF
+          CACHE_DIR=./test-data
+          LISTEN_PORT=${{ steps.port.outputs.port }}
+          CERTS_DIR=./test-certs
+          EOF
+      
+      - name: Start with Docker Compose
+        run: |
+          mkdir -p test-data test-certs
+          docker compose up -d
+          
+          # Wait for proxy to be responsive
+          started=0
+          for i in {1..30}; do
+            if curl -x http://localhost:${{ steps.port.outputs.port }} -I http://httpbin.org/status/200 --connect-timeout 1 --max-time 2 2>/dev/null | head -1 | grep -q "200"; then
+              echo "✅ Proxy is responsive"
+              started=1
+              break
+            fi
+            echo "Waiting for proxy to respond... attempt $i/30"
+            sleep 2
+          done
+          if [ "$started" -ne 1 ]; then
+            echo "❌ Proxy did not become responsive within 60s timeout"
+            docker compose logs
+            exit 1
+          fi
+      
+      - name: Set up Python for tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Setup development environment
+        run: make dev
+      
+      - name: Run E2E tests (using external Docker proxy)
+        env:
+          USE_EXTERNAL_PROXY: "1"
+          LISTEN_PORT: ${{ steps.port.outputs.port }}
+        run: make e2e
+      
+      - name: Show logs
+        if: always()
+        run: docker compose logs
+      
+      - name: Stop Docker Compose
+        if: always()
+        run: docker compose down
+
+  test-quadlet:
+    name: Test Quadlet with systemd
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Setup development environment
+        run: make dev
+      
+      - name: Find free port
+        id: port
+        run: |
+          PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+          echo "port=$PORT" >> $GITHUB_OUTPUT
+          echo "Using port: $PORT"
+      
+      - name: Create test configuration
+        run: |
+          cat > .env << EOF
+          CACHE_DIR=$(pwd)/test-data
+          LISTEN_PORT=${{ steps.port.outputs.port }}
+          CERTS_DIR=$(pwd)/test-certs
+          EOF
+          mkdir -p test-data test-certs
+      
+      - name: Generate Quadlet file
+        run: |
+          make quadlet
+          cat mitm-archiver.container
+      
+      - name: Install Quadlet file for systemd user
+        run: |
+          mkdir -p ~/.config/containers/systemd
+          cp mitm-archiver.container ~/.config/containers/systemd/
+          systemctl --user daemon-reload
+      
+      - name: Start service with systemctl
+        run: |
+          systemctl --user start mitm-archiver.service
+          
+          # Wait for service to be active
+          for i in {1..30}; do
+            if systemctl --user is-active mitm-archiver.service >/dev/null 2>&1; then
+              echo "✅ Service started successfully"
+              break
+            fi
+            echo "Waiting for service... attempt $i/30"
+            sleep 2
+          done
+          
+          # Show service status
+          systemctl --user status mitm-archiver.service
+      
+      - name: Run E2E tests (using systemd Quadlet service)
+        env:
+          USE_EXTERNAL_PROXY: "1"
+          LISTEN_PORT: ${{ steps.port.outputs.port }}
+        run: make e2e
+      
+      - name: Show service logs
+        if: always()
+        run: journalctl --user -u mitm-archiver.service || true
+      
+      - name: Stop service
+        if: always()
+        run: systemctl --user stop mitm-archiver.service || true
