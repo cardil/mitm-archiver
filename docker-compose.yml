@@ -4,9 +4,6 @@ services:
     container_name: mitm-archiver
     restart: unless-stopped
     
-    env_file:
-      - .env
-    
     volumes:
       # Mount source directory (read-only with SELinux label)
       - .:/opt/mitm-archiver:ro,Z
