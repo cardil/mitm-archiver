@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "mitm-archiver"
 version = "1.0.0"
 description = "Permanent lazy mirror proxy for CI/CD external dependencies"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 dependencies = [
     "mitmproxy>=10.1.0,<11.0.0",
     "python-dotenv>=1.0.0",
@@ -26,7 +26,7 @@ py-modules = ["archiver", "config"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py310"
+target-version = "py39"
 
 [tool.ruff.lint]
 select = [
@@ -53,4 +53,4 @@ addopts = "--reruns 3 --reruns-delay 2"
 
 [tool.black]
 line-length = 88
-target-version = ["py310"]
+target-version = ["py39"]

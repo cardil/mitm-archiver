@@ -9,11 +9,12 @@ A mitm proxy that archives downloads (download once) - acting as a permanent "La
 ### Local Development
 ```bash
 make setup  # Create venv and install dependencies
-make run    # Start proxy on localhost:8080
-make test   # Test with sample requests
+make run    # Start proxy on localhost:8080 (uses defaults, no .env needed)
+make e2e    # Run end-to-end tests
 ```
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed developer documentation.
+**Configuration is optional** - runs with sensible defaults (`./data` cache, port 8080, no auth).
+See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed developer documentation and customization.
 
 ### Production Deployment
 
@@ -29,14 +30,26 @@ Choose your deployment method:
 - Docker and Docker Compose installed
 - Root or docker group access
 
-### Installation
+### Quick Start (Using Defaults)
+
+```bash
+docker compose up -d
+```
+
+This runs with default settings:
+- Cache: `./data`
+- Port: `8080`
+- Certificates: `./certs`
+- Auth: None (no authentication)
+
+### Production Installation
 
 1. **Prepare directories:**
    ```bash
    sudo mkdir -p /var/lib/mitm-archiver/{data,certs}
    ```
 
-2. **Configure:**
+2. **Configure (create .env for custom settings):**
    ```bash
    cp .env.example .env
    vi .env
@@ -85,6 +98,7 @@ docker compose up -d  # Recreates with new config
 ### Prerequisites
 - Podman 4.4+ with Quadlet support
 - systemd
+- Python 3.9+ (for Quadlet generation)
 
 ### Installation
 
@@ -96,7 +110,7 @@ docker compose up -d  # Recreates with new config
    sudo chcon -R -t container_file_t /var/lib/mitm-archiver
    ```
 
-2. **Configure:**
+2. **Configure (.env is REQUIRED for Quadlet generation):**
    ```bash
    cp .env.example .env
    vi .env
@@ -112,7 +126,8 @@ docker compose up -d  # Recreates with new config
 
 3. **Generate and install Quadlet:**
    ```bash
-   python3 scripts/generate-quadlet.py
+   make setup  # Install dependencies
+   make quadlet  # Generate mitm-archiver.container from .env
    sudo cp mitm-archiver.container /etc/containers/systemd/
    sudo systemctl daemon-reload
    ```
@@ -143,7 +158,7 @@ sudo systemctl stop mitm-archiver.service
 
 # Update configuration
 vi .env
-python3 scripts/generate-quadlet.py
+make quadlet
 sudo cp mitm-archiver.container /etc/containers/systemd/
 sudo systemctl daemon-reload
 sudo systemctl restart mitm-archiver.service
@@ -153,14 +168,43 @@ sudo systemctl restart mitm-archiver.service
 
 ## Configuration
 
-All settings are controlled via environment variables in `.env` file:
+Settings can be customized via environment variables (in `.env` file or system environment).
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `CACHE_DIR` | Directory for cached files | `/var/lib/mitm-archiver/data` |
-| `LISTEN_PORT` | Proxy listen port | `42424` |
-| `CERTS_DIR` | SSL certificates storage | `/var/lib/mitm-archiver/certs` |
-| `PROXY_AUTH` | Authentication (optional) | `username:password` |
+### Configuration File Requirements
+
+| Deployment Method | .env File | Defaults Used |
+|-------------------|-----------|---------------|
+| **Local Development** | Optional | ✅ Yes |
+| **Docker Compose** | Optional | ✅ Yes |
+| **Quadlet** | **Required** | ❌ No (for template generation) |
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CACHE_DIR` | `./data` | Directory for cached files |
+| `LISTEN_PORT` | `8080` | Proxy listen port |
+| `CERTS_DIR` | `./certs` | SSL certificates storage |
+| `PROXY_AUTH` | _(empty)_ | Authentication (format: `username:password`) |
+
+### Examples
+
+**Local Development (using defaults):**
+```bash
+make run  # Uses: ./data, port 8080, ./certs, no auth
+```
+
+**Docker Compose (using defaults):**
+```bash
+docker compose up  # Uses: ./data, port 8080, ./certs, no auth
+```
+
+**Custom Configuration (any deployment):**
+```bash
+cp .env.example .env
+vi .env  # Edit settings
+make run  # or docker compose up, or make quadlet
+```
 
 ## Security Considerations
 

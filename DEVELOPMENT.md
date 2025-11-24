@@ -4,7 +4,7 @@ Quick guide for local development and testing.
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.9+
 - curl (for testing)
 
 ## Quick Start
@@ -13,11 +13,11 @@ Quick guide for local development and testing.
 # 1. Setup
 make setup
 
-# 2. Run proxy
+# 2. Run proxy (uses defaults: port 8080, ./data cache, no auth)
 make run
 
-# 3. Test (in another terminal)
-make test
+# 3. Run E2E tests (starts its own proxy automatically)
+make e2e
 ```
 
 ## Development Workflow
@@ -27,7 +27,7 @@ make test
 ```bash
 make help        # Show all available commands
 make run         # Start proxy (localhost:8080)
-make test        # Run automated tests
+make e2e         # Run automated E2E tests
 make config-show # Display current configuration
 make format      # Format code with black
 make lint        # Lint code with ruff
@@ -40,20 +40,34 @@ make clean-all   # Clean everything including venv
 1. Edit `archiver.py` or `config.py`
 2. Stop proxy (Ctrl+C)
 3. Run `make run` to restart
-4. Run `make test` to verify
+4. Run `make e2e` to verify
 
-### Custom Configuration
+### Configuration
 
-Edit `.env` (create from `.env.example` if needed):
+**No configuration needed** - runs with sensible defaults.
+
+**Defaults:**
+- Cache: `./data`
+- Port: `8080`
+- Certificates: `./certs`
+- Auth: None
+
+**To customize**, create `.env` from `.env.example`:
 
 ```bash
-CACHE_DIR=./data
-LISTEN_PORT=8080
-CERTS_DIR=./certs
-# PROXY_AUTH=  # Leave empty for no auth
+cp .env.example .env
+vi .env
 ```
 
-Or use a custom env file:
+Example custom settings:
+```bash
+CACHE_DIR=./my-cache
+LISTEN_PORT=9090
+CERTS_DIR=./my-certs
+PROXY_AUTH=user:pass
+```
+
+Or use a different env file:
 ```bash
 ENV_FILE=.env.custom make run
 ```
@@ -89,28 +103,35 @@ mitm-archiver/
 
 ### Automated Tests
 ```bash
-make test
+make e2e  # Automatically starts proxy, runs tests, stops proxy
 ```
 
-### Manual Testing
+**Note:** E2E tests start their own proxy server automatically - you don't need to run `make run` first.
+
+### Manual Testing (For Interactive Testing)
 ```bash
-# Set proxy
+# 1. Start proxy manually (in one terminal)
+make run
+
+# 2. In another terminal, set proxy and test
 export http_proxy=http://localhost:8080
 export https_proxy=http://localhost:8080
 
-# Test
+# 3. Test
 curl -k https://httpbin.org/get
 
-# Check cache
+# 4. Check cache
 ls -la ./data/
 ```
 
 ### Testing Docker Compose Locally
 ```bash
-# Create .env if not exists
-cp .env.example .env
+# Run with defaults (no .env needed)
+docker compose up
 
-# Run
+# Or customize with .env
+cp .env.example .env
+vi .env  # Edit settings
 docker compose up
 
 # Test (in another terminal)
@@ -122,8 +143,12 @@ docker compose down
 
 ### Testing Quadlet Template
 ```bash
-# Generate from local config
-python3 scripts/generate-quadlet.py
+# Quadlet generation requires .env
+cp .env.example .env
+vi .env  # Edit settings
+
+# Generate Quadlet file
+make quadlet
 cat mitm-archiver.container  # Review generated file
 ```
 
