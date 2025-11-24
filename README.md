@@ -98,7 +98,7 @@ docker compose up -d  # Recreates with new config
 ### Prerequisites
 - Podman 4.4+ with Quadlet support
 - systemd
-- Python 3.9+ (for Quadlet generation)
+- Python 3.10+ (for Quadlet generation)
 
 ### Installation
 

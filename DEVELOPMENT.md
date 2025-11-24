@@ -4,7 +4,7 @@ Quick guide for local development and testing.
 
 ## Prerequisites
 
-- Python 3.9+
+- Python 3.10+
 - curl (for testing)
 
 ## Quick Start
