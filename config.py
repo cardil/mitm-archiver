@@ -13,8 +13,15 @@ try:
     from dotenv import load_dotenv
 
     env_file = os.getenv("ENV_FILE", ".env")
-    if Path(env_file).exists():
-        load_dotenv(env_file)
+    # Resolve symlinks and check if file exists
+    env_path = Path(env_file)
+    if env_path.is_symlink():
+        env_path = env_path.resolve()
+
+    if env_path.exists():
+        # Override=True ensures .env values take precedence over system env vars
+        # This is important when .env is a symlink to a config file
+        load_dotenv(env_path, override=True)
 except (ImportError, FileNotFoundError):
     pass  # No .env file or dotenv not installed - use defaults
 

@@ -1,7 +1,9 @@
 .PHONY: help setup dev run e2e clean clean-all format lint config-show quadlet start
 
-# Default Python interpreter
-PYTHON := python3
+# Find Python 3.10+ using helper script
+# This handles systems like RHEL9 where python3 is 3.9 but python3.11 exists
+# Will fail with clear error if Python 3.10+ is not found
+PYTHON := $(shell python3 scripts/find-python.py)
 VENV := .venv
 VENV_BIN := $(VENV)/bin
 PIP := $(VENV_BIN)/pip

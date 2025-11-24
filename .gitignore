@@ -147,6 +147,9 @@ venv.bak/
 # Local development
 certs/
 data/
+# Symlinks
+certs
+data
 # Local testing
 test-certs/
 test-data/
