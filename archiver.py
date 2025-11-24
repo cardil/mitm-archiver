@@ -2,7 +2,10 @@ from pathlib import Path
 
 from mitmproxy import ctx, http
 
-from config import CACHE_DIR
+from config import CACHE_DIR, ensure_directories
+
+# Ensure directories exist when the proxy starts
+ensure_directories()
 
 # Chunk size for streaming responses (in bytes)
 CHUNK_SIZE = 8192

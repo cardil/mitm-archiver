@@ -59,7 +59,7 @@ dev: $(DEV_GUARD) ## Set up development environment (venv + all deps)
 	@printf "To run E2E tests: make e2e\n"
 	@printf "To run linter: make lint\n"
 
-config-show: $(VENV_GUARD) ## Show current configuration
+config-show: $(INSTALL_GUARD) ## Show current configuration
 	@printf "$(YELLOW)⚙️  Current configuration:$(RESET)\n"
 	@if [ ! -f "$(ENV_FILE)" ]; then \
 		printf "$(YELLOW)⚠️  No $(ENV_FILE) found, using defaults$(RESET)\n"; \
